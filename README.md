@@ -1,7 +1,7 @@
 # Predicción de Compuestos Antivirales contra el Dengue
 
-Trabajo Práctico Final — Quimioinformática  
-**Autores:** Andrés Lax · Agustina Sosa
+Trabajo Práctico Final 2.0 — Quimioinformática  
+**Autores:** Agustina Sosa
 
 ---
 
@@ -26,6 +26,7 @@ Este proyecto aplica técnicas de quimioinformática y machine learning para ide
 - **Fuente:** PubChem Bioassay [AID 540333](https://pubchem.ncbi.nlm.nih.gov/bioassay/540333)
 - **Proyecto:** Broad Institute — ensayo de inhibición del efecto citopático (CPE) del virus del dengue
 - **Variable objetivo:** `PUBCHEM_ACTIVITY_OUTCOME` (Active / Inactive)
+- **Distribución:** 318 compuestos activos / 9.922 inactivos (ratio 1:31)
 
 ---
 
@@ -68,7 +69,6 @@ Este proyecto aplica técnicas de quimioinformática y machine learning para ide
 
 #### Random Forest con descriptores
 - 9 descriptores fisicoquímicos como features
-- `n_estimators=5`, `random_state=42`
 - Evaluación con matriz de confusión y recall
 
 #### Random Forest con Morgan Fingerprints
@@ -77,37 +77,60 @@ Este proyecto aplica técnicas de quimioinformática y machine learning para ide
 - Modelo seleccionado para la validación final
 
 ### 6. Validación en compuestos FDA
-- Dataset obtenido desde ChEMBL (fase clínica máxima = 4, ~3.594 compuestos)
+- Dataset obtenido desde ChEMBL (fase clínica máxima = 4)
+- Filtro de druglikeness aplicado mediante la Regla de Lipinski antes de la predicción
 - Predicción con el modelo Random Forest + fingerprints
-- Resultado: 15 compuestos (~0,5%) predichos como activos, incluyendo antihistamínicos (pirilamina, tripelenamina), tensioactivos (tonzonios) y antibióticos (cefiderocol)
 
 ---
 
 ## Resultados
 
-| Modelo | Recall (Active) |
-|---|---|
-| KNN (k=3) | variable según k |
-| Random Forest + descriptores | — |
-| Random Forest + fingerprints | 0.059 |
+### Versión inicial
 
-**Matriz de confusión (Random Forest + fingerprints, test set):**
+| Modelo | Recall train (Active) | Recall test (Active) |
+|---|---|---|
+| Random Forest + descriptores | 0.996 | 0.074 |
+| Random Forest + fingerprints | 0.976 | 0.059 |
+
+El recall bajo en test y el alto en train evidenciaban overfitting severo, producto del desbalance de clases (1:31) y la ausencia de regularización.
+
+### Versión mejorada
+
+Se aplicaron las siguientes modificaciones al modelo Random Forest + fingerprints:
+
+- `class_weight='balanced'` para penalizar errores en la clase minoritaria
+- Sobremuestreo sintético con SMOTE sobre el conjunto de entrenamiento
+- Ajuste de `max_depth=7` seleccionado manualmente tras constatar que GridSearchCV con datos SMOTE sobreestimaba el rendimiento real en test
+- `n_estimators=100`
+
+| Modelo | Recall train (Active) | Recall test (Active) |
+|---|---|---|
+| Random Forest + fingerprints (mejorado) | 0.952 | 0.324 |
+
+**Matriz de confusión (test set):**
 
 |  | Pred. Active | Pred. Inactive |
 |---|---|---|
-| **Real Active** | 4 (TP) | 64 (FN) |
-| **Real Inactive** | 5 (FP) | 1975 (TN) |
+| **Real Active** | 18 (TP) | 50 (FN) |
+| **Real Inactive** | 254 (FP) | 1726 (TN) |
 
-El recall bajo refleja el desbalance severo de clases del dataset original, un problema clásico en cribado virtual de fármacos.
+La mejora en recall (0.059 → 0.324) se obtiene al costo de mayor cantidad de falsos positivos, lo que refleja el trade-off inherente al desbalance de clases del dataset.
 
 ---
 
 ## Conclusiones
 
-- Los modelos basados en fingerprints capturan patrones estructurales relevantes, pero son sensibles al desbalance de clases.
-- El overfitting es un riesgo con pocos estimadores; se recomienda usar validación cruzada y ajuste de hiperparámetros.
-- La validación sobre compuestos FDA muestra coherencia biológica: los hits incluyen compuestos con actividad antiparasitaria y antiviral conocida.
-- Como trabajo futuro se propone balanceo de dataset (SMOTE u oversampling), más estimadores en el Random Forest, y exploración de modelos de grafo (GNN) para representación molecular más rica.
+El modelo logra captar patrones estructurales asociados a la actividad contra el dengue, aunque el desbalance severo del dataset (1:31) limita su capacidad de generalización. Los Morgan fingerprints resultan una representación efectiva de la estructura molecular, pero la alta dimensionalidad (2048 bits) combinada con pocos ejemplos activos favorece el overfitting.
+
+La incorporación de SMOTE, regularización por profundidad máxima y ajuste de hiperparámetros permitió mejorar el recall en test de 0.059 a 0.324. Sin embargo, la precisión permanece baja: el modelo tiende a predecir un número elevado de falsos positivos, lo que limita su utilidad directa como herramienta de screening. La optimización por F1 no produjo mejoras sustanciales respecto a la optimización por recall, y la profundidad óptima se mantuvo en `max_depth=7` en ambos casos.
+
+La validación sobre compuestos aprobados por la FDA muestra resultados cualitativamente coherentes en algunos hits, pero la tasa de predicciones positivas (~42%) es demasiado alta para ser útil en la práctica, lo que refuerza que el problema central es el desbalance del dataset y no la elección del modelo.
+
+Como líneas de trabajo futuro se propone:
+
+- Incorporar bioensayos adicionales de dengue disponibles en PubChem para aumentar la cantidad de ejemplos activos
+- Explorar modelos preentrenados sobre grandes corpus moleculares (ChemBERTa, MolBERT) que puedan aprovechar representaciones más ricas que los fingerprints
+- Investigar arquitecturas de redes neuronales de grafos (GNN) que traten la molécula como grafo en lugar de vector de bits
 
 ---
 
@@ -116,6 +139,7 @@ El recall bajo refleja el desbalance severo de clases del dataset original, un p
 - Python 3 (Google Colab)
 - [RDKit](https://www.rdkit.org/) — quimioinformática y descriptores moleculares
 - [scikit-learn](https://scikit-learn.org/) — modelos de ML
+- [imbalanced-learn](https://imbalanced-learn.org/) — SMOTE para balanceo de clases
 - [ChEMBL Web Resource Client](https://github.com/chembl/chembl_webresource_client) — descarga de fármacos FDA
 - [PubChemPy](https://pubchempy.readthedocs.io/) — interfaz con PubChem
 - pandas · numpy · matplotlib · seaborn
@@ -126,7 +150,7 @@ El recall bajo refleja el desbalance severo de clases del dataset original, un p
 
 ```
 bioinformatics/
-└── Grupo_13.ipynb    # Notebook principal con análisis completo
+└── dengue_screening.ipynb    # Notebook principal con análisis completo
 ```
 
 ---
@@ -137,3 +161,4 @@ bioinformatics/
 - Ministerio de Salud Argentina — Boletín epidemiológico dengue 2025
 - Lipinski, C.A. et al. (1997). Experimental and computational approaches to estimate solubility and permeability in drug discovery. *Advanced Drug Delivery Reviews*.
 - Baell, J.B. & Holloway, G.A. (2010). New substructure filters for removal of pan assay interference compounds (PAINS). *J. Med. Chem.*
+- Chithrananda, S. et al. (2020). ChemBERTa: Large-Scale Self-Supervised Pretraining for Molecular Property Prediction. *arXiv*.
